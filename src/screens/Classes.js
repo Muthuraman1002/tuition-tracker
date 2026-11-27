@@ -22,6 +22,7 @@ export function ClassRow({ c, onPress, showDay }) {
       <View style={{ flex: 1 }}>
         <T weight="600">{c.subject || "Class"}{c.studentIds.length > 1 ? <T size={12} muted>  · group of {c.studentIds.length}</T> : null}</T>
         <T size={13} muted numberOfLines={2}>{names(store, c.studentIds)}</T>
+        {(c.homework || []).length > 0 && (() => { const left = c.homework.filter((h) => !h.done).length; return <T size={12} weight="600" color={left ? t.flag : t.gain}>{left ? `Homework: ${left} pending` : "Homework done"}</T>; })()}
       </View>
       {tag && <T size={12} weight="700" color={tag[1]}>{tag[0]}</T>}
     </Pressable>
@@ -78,7 +79,7 @@ export function ScheduleSheet({ initial, studentIds: preset, onClose }) {
     if (!subject.trim()) return setErr("Enter the subject.");
     const go = () => {
       const base = { studentIds: ids, subject: subject.trim(), durationMin: dur, note: note.trim() };
-      if (editing) store.updateClass(initial.id, { ...base, start });
+      if (editing) store.updateClass(initial.id, { ...base, start, status: initial.status || "scheduled" }); // a cancelled class restored via "Change time" arrives as scheduled
       else store.addClasses(base, starts);
       onClose();
     };
@@ -147,10 +148,23 @@ export function ClassSheet({ id, onClose, onEdit, openStudent }) {
   const c = store.db.classes.find((x) => x.id === id);
   const [completing, setCompleting] = useState(false);
   const [present, setPresent] = useState(c ? c.studentIds : []);
+  const [hw, setHw] = useState("");
   if (!c) return null;
   const { payments, classes } = store.db;
   const charges = store.chargesFor(c, present);
   const total = Object.values(charges).reduce((a, b) => a + b, 0);
+
+  // The slot may have been booked again after cancelling, so check for clashes before restoring.
+  const restore = () => {
+    const clashes = overlaps(classes, c.start, classEnd(c), c.id);
+    if (!clashes.length) return store.updateClass(c.id, { status: "scheduled" });
+    const list = clashes.slice(0, 5).map((x) => `• ${fmtTime(x.start)}–${fmtTime(classEnd(x))} ${x.subject} with ${names(store, x.studentIds)}`).join("\n");
+    Alert.alert("This time is now taken", `Restoring would overlap with:\n${list}${clashes.length > 5 ? `\nand ${clashes.length - 5} more` : ""}`, [
+      { text: "Change time", onPress: () => onEdit({ ...c, status: "scheduled" }) },
+      { text: "Restore anyway", style: "destructive", onPress: () => store.updateClass(c.id, { status: "scheduled" }) },
+      { text: "Keep cancelled", style: "cancel" },
+    ]);
+  };
 
   const complete = () => { store.completeClass(c.id, charges); setCompleting(false); };
   const remove = () => Alert.alert("Delete this class?", c.status === "completed" ? "Its fees will be added back to the students' balances." : "", [
@@ -205,9 +219,47 @@ export function ClassSheet({ id, onClose, onEdit, openStudent }) {
         <Button kind="ghost" title="Back" style={{ marginTop: 10 }} onPress={() => setCompleting(false)} />
       </>}
 
+      <Homework c={c} hw={hw} setHw={setHw} />
+
       {c.status === "completed" && <Button kind="ghost" title="Undo completed" style={{ marginTop: 16 }} onPress={() => store.undoComplete(c.id)} />}
-      {c.status === "cancelled" && <Button kind="ghost" title="Restore class" style={{ marginTop: 16 }} onPress={() => store.updateClass(c.id, { status: "scheduled" })} />}
+      {c.status === "cancelled" && <Button kind="ghost" title="Restore class" style={{ marginTop: 16 }} onPress={restore} />}
       <Button kind="ghost" danger title="Delete class" style={{ marginTop: 10 }} onPress={remove} />
     </Sheet>
+  );
+}
+
+// ---------------------------------------------------------------- homework for one class
+export function Homework({ c, hw, setHw }) {
+  const store = useStore();
+  const t = useTheme();
+  const items = c.homework || [];
+  const add = () => { if (hw.trim()) { store.addHomework(c.id, hw); setHw(""); } };
+  return (
+    <>
+      <H style={{ marginTop: 20 }}>Homework{items.length ? ` · ${items.filter((h) => h.done).length}/${items.length} done` : ""}</H>
+      {items.map((h) => <HomeworkItem key={h.id} h={h} onToggle={() => store.toggleHomework(c.id, h.id)}
+        onRemove={() => Alert.alert("Delete this homework?", h.text, [{ text: "Keep", style: "cancel" }, { text: "Delete", style: "destructive", onPress: () => store.removeHomework(c.id, h.id) }])} />)}
+      <View style={{ flexDirection: "row", gap: 8, alignItems: "flex-start", marginTop: items.length ? 8 : 0 }}>
+        <Field style={{ flex: 1, marginBottom: 0 }} value={hw} onChangeText={setHw} placeholder="e.g. Exercise 4.2, Q1–10" onSubmitEditing={add} returnKeyType="done" />
+        <Button title="Add" onPress={add} disabled={!hw.trim()} />
+      </View>
+      <T size={12} muted style={{ marginTop: 6 }}>Tap the circle when it's done. Long-press to delete.</T>
+    </>
+  );
+}
+
+export function HomeworkItem({ h, onToggle, onRemove, sub }) {
+  const t = useTheme();
+  return (
+    <Pressable onPress={onToggle} onLongPress={onRemove} style={{ flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 9, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: t.line }}>
+      <View style={{ width: 24, height: 24, borderRadius: 12, borderWidth: 2, borderColor: h.done ? t.gain : t.muted, backgroundColor: h.done ? t.gain : "transparent", alignItems: "center", justifyContent: "center" }}>
+        {h.done ? <T size={14} weight="800" color={t.surface}>✓</T> : null}
+      </View>
+      <View style={{ flex: 1 }}>
+        <T style={h.done ? { textDecorationLine: "line-through", color: t.muted } : null}>{h.text}</T>
+        {sub ? <T size={12} muted>{sub}</T> : null}
+        {h.done && h.doneAt ? <T size={12} color={t.gain}>Done {fmtDay(h.doneAt)}</T> : null}
+      </View>
+    </Pressable>
   );
 }

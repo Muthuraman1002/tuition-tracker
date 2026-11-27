@@ -3,6 +3,7 @@ import { Alert, Linking, Pressable, StyleSheet, View } from "react-native";
 import { useStore } from "../store";
 import { useTheme } from "../theme";
 import { BalancePill, Button, Card, DateTimeField, Field, H, Notice, Row, Screen, Sheet, T } from "../ui";
+import { HomeworkItem } from "./Classes";
 import { balanceOf, classEnd, feeState, fmtDay, fmtMonth, fmtTime, money, monthKey, monthStats } from "../logic";
 
 // ---------------------------------------------------------------- list tab
@@ -79,7 +80,7 @@ export function StudentForm({ student, onClose }) {
 }
 
 // ---------------------------------------------------------------- details
-export function StudentSheet({ id, onClose, onEdit, openClass, schedule }) {
+export function StudentSheet({ id, onClose, onEdit, openClass, schedule, exportFor }) {
   const store = useStore();
   const t = useTheme();
   const s = store.studentById(id);
@@ -132,6 +133,7 @@ export function StudentSheet({ id, onClose, onEdit, openClass, schedule }) {
         <Button title="Schedule a class" style={{ flex: 1 }} onPress={() => schedule([s.id])} />
         <Button kind="ghost" title="Edit" style={{ flex: 1 }} onPress={() => onEdit(s)} />
       </View>
+      <Button kind="ghost" title="Export sessions (PDF / Excel)" style={{ marginTop: 10 }} onPress={() => exportFor([s.id])} />
 
       <H style={{ marginTop: 20 }}>{fmtMonth(month)}</H>
       {s.classesPerMonth ? <>
@@ -158,6 +160,18 @@ export function StudentSheet({ id, onClose, onEdit, openClass, schedule }) {
         ))}
         <T size={12} muted>Tap a payment to delete it.</T>
       </>}
+
+      {(() => {
+        const hw = mine.filter((c) => c.status !== "cancelled").flatMap((c) => (c.homework || []).map((h) => ({ c, h }))).sort((a, b) => b.c.start - a.c.start);
+        const pending = hw.filter((x) => !x.h.done);
+        if (!hw.length) return null;
+        return <>
+          <H style={{ marginTop: 20 }}>Homework · {pending.length} pending</H>
+          {[...pending, ...hw.filter((x) => x.h.done).slice(0, 5)].map(({ c, h }) => (
+            <HomeworkItem key={h.id} h={h} onToggle={() => store.toggleHomework(c.id, h.id)} onRemove={() => openClass(c.id)} sub={`${c.subject} · given ${fmtDay(c.start)}`} />
+          ))}
+        </>;
+      })()}
 
       <H style={{ marginTop: 20 }}>Upcoming classes</H>
       {!upcoming.length ? <T muted>None scheduled.</T> : upcoming.slice(0, 10).map((c) => <Row key={c.id} label={`${fmtDay(c.start)}, ${fmtTime(c.start)}`} value={c.subject} onPress={() => openClass(c.id)} />)}

@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { useStore } from "../store";
-import { useTheme } from "../theme";
+import { ACCENTS, useTheme } from "../theme";
 import * as N from "../notify";
-import { BalancePill, Button, Card, H, Notice, Row, Screen, Segmented, T } from "../ui";
-import { ClassRow } from "./Classes";
+import { BalancePill, Button, Card, Field, H, Notice, Row, Screen, Segmented, T } from "../ui";
+import { ClassRow, HomeworkItem } from "./Classes";
 import { addMonths, balanceOf, classEnd, DAY, feeState, fmtDay, fmtMonth, money, monthKey, monthRange, monthStats, startOfDay } from "../logic";
 
 // Re-render every minute so "now", "late" and "today" stay current.
@@ -36,6 +36,8 @@ export function TodayTab({ openClass, openStudent, schedule }) {
   const unmarked = sched.filter((c) => classEnd(c) < now && c.start < today);
   const todays = classes.filter((c) => c.start >= today && c.start < tomorrow).sort((a, b) => a.start - b.start);
   const soon = sched.filter((c) => c.start >= tomorrow && c.start < today + 8 * DAY);
+  const pendingHw = classes.filter((c) => c.status !== "cancelled" && c.start < now).flatMap((c) => (c.homework || []).filter((h) => !h.done).map((h) => ({ c, h })))
+    .sort((a, b) => a.c.start - b.c.start);
   const fees = students.map((s) => ({ s, bal: balanceOf(s.id, payments, classes).balance })).map((r) => ({ ...r, state: feeState(r.s, r.bal) })).filter((r) => r.state !== "ok")
     .sort((a, b) => a.bal - b.bal);
 
@@ -47,6 +49,7 @@ export function TodayTab({ openClass, openStudent, schedule }) {
           <Pressable onPress={() => Linking.openSettings()}><T size={14} weight="700" color={t.brand}>Turn them on in Settings</T></Pressable>
         </Notice>
       )}
+      {!store.db.settings.centerName && <CenterNameCard />}
       <Button title="Schedule a class" onPress={() => schedule()} style={{ marginBottom: 12 }} />
 
       {fees.length > 0 && (
@@ -66,6 +69,17 @@ export function TodayTab({ openClass, openStudent, schedule }) {
           <H>Not marked yet</H>
           <T size={13} muted style={{ marginBottom: 4 }}>Earlier classes still waiting to be marked completed or cancelled.</T>
           {unmarked.slice(0, 10).map((c) => <ClassRow key={c.id} c={c} showDay onPress={() => openClass(c.id)} />)}
+        </Card>
+      )}
+
+      {pendingHw.length > 0 && (
+        <Card>
+          <H>Homework pending · {pendingHw.length}</H>
+          {pendingHw.slice(0, 12).map(({ c, h }) => (
+            <HomeworkItem key={h.id} h={h} onToggle={() => store.toggleHomework(c.id, h.id)} onRemove={() => openClass(c.id)}
+              sub={`${c.studentIds.map((id) => (students.find((s) => s.id === id) || {}).name).filter(Boolean).join(", ")} · ${c.subject} · given ${fmtDay(c.start)}`} />
+          ))}
+          {pendingHw.length > 12 && <T size={12} muted style={{ marginTop: 6 }}>and {pendingHw.length - 12} more</T>}
         </Card>
       )}
 
@@ -113,7 +127,7 @@ export function ScheduleTab({ openClass, schedule }) {
 }
 
 // ---------------------------------------------------------------- Month: classes per student, carry over, fees
-export function MonthTab({ openStudent }) {
+export function MonthTab({ openStudent, exportFor }) {
   const store = useStore();
   const t = useTheme();
   const [month, setMonth] = useState(monthKey(Date.now()));
@@ -132,6 +146,7 @@ export function MonthTab({ openStudent }) {
         <Row label="Still scheduled" value={String(inMonth.filter((c) => c.status === "scheduled").length)} />
         <Row label="Fees earned from classes" value={money(earned)} />
         <Row label="Payments received" value={money(received)} last />
+        <Button kind="ghost" title="Export sessions (PDF / Excel)" style={{ marginTop: 12 }} onPress={() => exportFor()} />
       </Card>
 
       <Card>
@@ -166,6 +181,25 @@ export function MonthTab({ openStudent }) {
       </Card>
 
       <Card>
+        <H>Your centre</H>
+        <CenterNameField />
+        <T size={13} muted style={{ marginBottom: 8 }}>Colour</T>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 10 }}>
+          {Object.entries(ACCENTS).map(([k, a]) => {
+            const on = (settings.accent || "teal") === k;
+            return (
+              <Pressable key={k} onPress={() => store.saveSettings({ accent: k })} accessibilityLabel={a.label} style={{ alignItems: "center", width: 52 }}>
+                <View style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: a[t.mode], borderWidth: on ? 3 : 0, borderColor: t.ink, alignItems: "center", justifyContent: "center" }}>
+                  {on ? <T weight="800" color={t.onBrand}>✓</T> : null}
+                </View>
+                <T size={11} muted={!on} weight={on ? "700" : "400"} style={{ marginTop: 3 }}>{a.label}</T>
+              </Pressable>
+            );
+          })}
+        </View>
+      </Card>
+
+      <Card>
         <H>Reminders</H>
         <T size={13} muted style={{ marginBottom: 8 }}>You always get a notification when a class starts. Also remind me before:</T>
         <Segmented value={settings.remindBefore} onChange={(v) => store.saveSettings({ remindBefore: v })} options={[[0, "Off"], [5, "5 min"], [10, "10 min"], [15, "15 min"], [30, "30 min"]]} />
@@ -173,5 +207,26 @@ export function MonthTab({ openStudent }) {
         <Segmented value={settings.defaultDuration} onChange={(v) => store.saveSettings({ defaultDuration: v })} options={[[30, "30m"], [45, "45m"], [60, "1h"], [90, "1½h"], [120, "2h"]]} />
       </Card>
     </Screen>
+  );
+}
+
+// ---------------------------------------------------------------- centre name
+function CenterNameField({ onSaved }) {
+  const store = useStore();
+  const [name, setName] = useState(store.db.settings.centerName || "");
+  const save = () => { store.saveSettings({ centerName: name.trim() }); onSaved && onSaved(); };
+  return <Field label="Centre name" value={name} onChangeText={setName} onEndEditing={save} onSubmitEditing={save} returnKeyType="done" autoCapitalize="words" placeholder="e.g. Bright Minds Tuition Centre" hint="Shown at the top of the app." />;
+}
+
+function CenterNameCard() {
+  const store = useStore();
+  const [name, setName] = useState("");
+  return (
+    <Card>
+      <H>Name your tuition centre</H>
+      <Field value={name} onChangeText={setName} autoCapitalize="words" placeholder="e.g. Bright Minds Tuition Centre" returnKeyType="done"
+        onSubmitEditing={() => name.trim() && store.saveSettings({ centerName: name.trim() })} />
+      <Button title="Save" disabled={!name.trim()} onPress={() => store.saveSettings({ centerName: name.trim() })} />
+    </Card>
   );
 }

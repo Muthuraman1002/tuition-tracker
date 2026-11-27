@@ -4,7 +4,7 @@ import { File, Paths } from "expo-file-system";
 import * as N from "./notify";
 import { active, feeFor, uid } from "./logic";
 
-const EMPTY = { students: [], classes: [], payments: [], carry: {}, settings: { remindBefore: 10, defaultDuration: 60 } };
+const EMPTY = { students: [], classes: [], payments: [], carry: {}, settings: { remindBefore: 10, defaultDuration: 60, centerName: "", accent: "teal" } };
 const file = () => new File(Paths.document, "tuition.json");
 
 async function load() {
@@ -71,6 +71,11 @@ export function StoreProvider({ children }) {
     chargesFor: (c, attendees) => Object.fromEntries((attendees || c.studentIds).map((sid) => [sid, feeFor(db.students.find((s) => s.id === sid), c.subject)])),
     completeClass: (id, charges) => update((d) => ({ ...d, classes: d.classes.map((c) => (c.id === id ? { ...c, status: "completed", completedAt: Date.now(), charges } : c)) })),
     undoComplete: (id) => update((d) => ({ ...d, classes: d.classes.map((c) => (c.id === id ? { ...c, status: "scheduled", completedAt: null, charges: null } : c)) })),
+
+    // Homework set in a class: [{ id, text, done, doneAt }]
+    addHomework: (classId, text) => update((d) => ({ ...d, classes: d.classes.map((c) => (c.id === classId ? { ...c, homework: [...(c.homework || []), { id: uid(), text: text.trim(), done: false, doneAt: null }] } : c)) })),
+    toggleHomework: (classId, hwId) => update((d) => ({ ...d, classes: d.classes.map((c) => (c.id === classId ? { ...c, homework: (c.homework || []).map((h) => (h.id === hwId ? { ...h, done: !h.done, doneAt: h.done ? null : Date.now() } : h)) } : c)) })),
+    removeHomework: (classId, hwId) => update((d) => ({ ...d, classes: d.classes.map((c) => (c.id === classId ? { ...c, homework: (c.homework || []).filter((h) => h.id !== hwId) } : c)) })),
 
     addPayment: (p) => update((d) => ({ ...d, payments: [...d.payments, { ...p, id: uid(), amount: Number(p.amount) }] })),
     removePayment: (id) => update((d) => ({ ...d, payments: d.payments.filter((p) => p.id !== id) })),
