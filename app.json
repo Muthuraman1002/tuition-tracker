@@ -1,0 +1,39 @@
+{
+  "expo": {
+    "name": "Tuition",
+    "slug": "tuition-tracker",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "automatic",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.tuitiontracker.appqpe8v3",
+      "appleTeamId": "4YBS7V7F39",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "package": "com.tuitiontracker.appqpe8v3",
+      "allowBackup": false
+    },
+    "plugins": [
+      "./plugins/withoutPush",
+      "@react-native-community/datetimepicker",
+      [
+        "expo-notifications",
+        {
+          "sounds": []
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "deploymentTarget": "17.0"
+          }
+        }
+      ]
+    ]
+  }
+}
