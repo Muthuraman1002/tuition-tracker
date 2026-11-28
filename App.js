@@ -10,6 +10,9 @@ import { MonthTab, ScheduleTab, TodayTab } from "./src/screens/Home";
 import { StudentForm, StudentSheet, StudentsTab } from "./src/screens/Students";
 import { ClassSheet, ScheduleSheet } from "./src/screens/Classes";
 import { ExportSheet } from "./src/screens/Export";
+import { WhatsAppSheet } from "./src/screens/WhatsApp";
+import { messages, openWhatsApp, waNumber } from "./src/whatsapp";
+import { balanceOf, monthKey, monthStats } from "./src/logic";
 
 const TABS = [["today", "Today"], ["schedule", "Schedule"], ["students", "Students"], ["month", "Month"]];
 
@@ -26,16 +29,48 @@ function Main() {
   const schedule = (studentIds) => setSheet({ kind: "schedule", studentIds });
   const exportFor = (studentIds) => setSheet({ kind: "export", studentIds });
 
-  // Tapping a class notification opens that class.
+  // ---------- WhatsApp messages to parents
+  const db = store.db;
+  const center = (db.settings.centerName || "").trim();
+  const studentsOf = (c) => c.studentIds.map((id) => store.studentById(id)).filter(Boolean);
+  const showWhatsApp = (title, items, back) => { if (items.length) setSheet({ kind: "wa", title, items, back }); };
+  const asked = (type) => !db.settings.waAsk || db.settings.waAsk[type] !== false;
+
+  // Called after something parents should hear about. `force` = the tutor asked for it, so skip the setting.
+  const whatsApp = (type, x, force) => {
+    if (!force && !asked(type)) return;
+    if (type === "scheduled") {
+      const made = x; // the new classes (a weekly series shares its students)
+      const students = [...new Set(made.flatMap((c) => c.studentIds))].map((id) => store.studentById(id)).filter(Boolean);
+      showWhatsApp("Tell parents about the new class", messages.scheduled(students, (sid) => made.filter((c) => c.studentIds.includes(sid)), center));
+    } else if (type === "reminder") showWhatsApp("Class reminder", messages.reminder(studentsOf(x), x, center), { kind: "class", id: x.id });
+    else if (type === "rescheduled") showWhatsApp("Tell parents about the new time", messages.rescheduled(studentsOf(x.c), x.c, x.oldStart, center));
+    else if (type === "cancelled") showWhatsApp("Tell parents it's cancelled", messages.cancelled(studentsOf(x), x, center), { kind: "class", id: x.id });
+    else if (type === "restored") showWhatsApp("Tell parents it's back on", messages.restored(studentsOf(x), x, center), { kind: "class", id: x.id });
+    else if (type === "payment") {
+      const { student: s, amount, date } = x;
+      const balance = balanceOf(s.id, db.payments, db.classes).balance + amount; // the new payment isn't saved in db yet
+      showWhatsApp("Send payment receipt", messages.payment(s, amount, date, balance, monthStats(s, monthKey(Date.now()), db.classes, db.carry), center), { kind: "student", id: s.id });
+    } else if (type === "balance") {
+      showWhatsApp("Send fee balance", messages.balance(x, balanceOf(x.id, db.payments, db.classes).balance, center), { kind: "student", id: x.id });
+    }
+  };
+
+  // Tapping a class notification opens that class; a WhatsApp reminder notification opens WhatsApp (or the send screen for a group).
   useEffect(() => {
     const sub = Notifications.addNotificationResponseReceivedListener((r) => {
-      const id = r.notification.request.content.data && r.notification.request.content.data.classId;
-      if (id && store.db.classes.some((c) => c.id === id)) openClass(id);
+      const data = r.notification.request.content.data || {};
+      const c = data.classId && store.db.classes.find((x) => x.id === data.classId);
+      if (!c) return;
+      if (data.kind === "wa" && c.status === "scheduled") {
+        const items = messages.reminder(studentsOf(c), c, center);
+        if (items.length === 1 && waNumber(items[0].student.phone)) openWhatsApp(items[0].student.phone, items[0].text).catch(() => showWhatsApp("Class reminder", items));
+        else showWhatsApp("Class reminder", items);
+      } else openClass(c.id);
     });
     return () => sub.remove();
-  }, [store.db.classes]);
+  }, [store.db]); // eslint-disable-line
 
-  const center = (store.db.settings.centerName || "").trim();
   const title = { today: center || "Tuition", schedule: "Schedule", students: "Students", month: "Month & settings" }[tab];
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.brand }} edges={["top"]}>
@@ -47,7 +82,7 @@ function Main() {
       </View>
       <View style={{ flex: 1, backgroundColor: t.ground }}>
         {tab === "today" && <TodayTab openClass={openClass} openStudent={openStudent} schedule={schedule} />}
-        {tab === "schedule" && <ScheduleTab openClass={openClass} schedule={schedule} exportFor={exportFor} />}
+        {tab === "schedule" && <ScheduleTab openClass={openClass} schedule={schedule} />}
         {tab === "students" && <StudentsTab openStudent={openStudent} newStudent={() => setSheet({ kind: "studentForm" })} />}
         {tab === "month" && <MonthTab openStudent={openStudent} exportFor={exportFor} />}
       </View>
@@ -63,9 +98,10 @@ function Main() {
         </View>
       </SafeAreaView>
 
-      {sheet && sheet.kind === "class" && <ClassSheet id={sheet.id} onClose={close} onEdit={(c) => setSheet({ kind: "schedule", initial: c })} openStudent={openStudent} />}
-      {sheet && sheet.kind === "schedule" && <ScheduleSheet initial={sheet.initial} studentIds={sheet.studentIds} onClose={close} />}
-      {sheet && sheet.kind === "student" && <StudentSheet id={sheet.id} onClose={close} onEdit={(s) => setSheet({ kind: "studentForm", student: s })} openClass={openClass} schedule={schedule} exportFor={exportFor} />}
+      {sheet && sheet.kind === "class" && <ClassSheet id={sheet.id} onClose={close} onEdit={(c) => setSheet({ kind: "schedule", initial: c })} openStudent={openStudent} whatsApp={whatsApp} />}
+      {sheet && sheet.kind === "schedule" && <ScheduleSheet initial={sheet.initial} studentIds={sheet.studentIds} onClose={close} whatsApp={whatsApp} />}
+      {sheet && sheet.kind === "wa" && <WhatsAppSheet title={sheet.title} items={sheet.items} onClose={() => setSheet(sheet.back || null)} />}
+      {sheet && sheet.kind === "student" && <StudentSheet id={sheet.id} onClose={close} onEdit={(s) => setSheet({ kind: "studentForm", student: s })} openClass={openClass} schedule={schedule} exportFor={exportFor} whatsApp={whatsApp} />}
       {sheet && sheet.kind === "export" && <ExportSheet studentIds={sheet.studentIds} onClose={close} />}
       {sheet && sheet.kind === "studentForm" && <StudentForm student={sheet.student} onClose={close} />}
     </SafeAreaView>

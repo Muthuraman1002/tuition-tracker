@@ -23,7 +23,7 @@ export function gather(db, studentIds, from, to, includeCancelled) {
         const charged = c.status === "completed" && c.charges ? c.charges[s.id] : undefined;
         return {
           c, charged, absent: c.status === "completed" && charged == null,
-          status: c.status === "completed" && charged == null ? "Absent" : STATUS[c.status],
+          status: (c.status === "completed" && charged == null ? "Absent" : STATUS[c.status]) + (c.free ? " (bonus class)" : ""),
           group: c.studentIds.length > 1, homework: c.homework || [],
         };
       });

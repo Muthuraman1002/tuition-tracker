@@ -20,7 +20,7 @@ export function ClassRow({ c, onPress, showDay }) {
         <T size={12} muted>{showDay ? fmtDay(c.start) : `${c.durationMin} min`}</T>
       </View>
       <View style={{ flex: 1 }}>
-        <T weight="600">{c.subject || "Class"}{c.studentIds.length > 1 ? <T size={12} muted>  · group of {c.studentIds.length}</T> : null}</T>
+        <T weight="600">{c.subject || "Class"}{c.studentIds.length > 1 ? <T size={12} muted>  · group of {c.studentIds.length}</T> : null}{c.free ? <T size={12} weight="700" color={t.gain}>  · Bonus class</T> : null}</T>
         <T size={13} muted numberOfLines={2}>{names(store, c.studentIds)}</T>
         {(c.homework || []).length > 0 && (() => { const left = c.homework.filter((h) => !h.done).length; return <T size={12} weight="600" color={left ? t.flag : t.gain}>{left ? `Homework: ${left} pending` : "Homework done"}</T>; })()}
       </View>
@@ -39,7 +39,7 @@ function nextSlot() {
   return d.getTime();
 }
 
-export function ScheduleSheet({ initial, studentIds: preset, onClose }) {
+export function ScheduleSheet({ initial, studentIds: preset, onClose, whatsApp }) {
   const store = useStore();
   const t = useTheme();
   const { students, classes, settings, payments, carry } = store.db;
@@ -50,6 +50,7 @@ export function ScheduleSheet({ initial, studentIds: preset, onClose }) {
   const [dur, setDur] = useState(initial ? initial.durationMin : settings.defaultDuration);
   const [weeks, setWeeks] = useState(1);
   const [note, setNote] = useState(initial ? initial.note || "" : "");
+  const [free, setFree] = useState(!!(initial && initial.free));
   const [err, setErr] = useState(null);
 
   const chosen = ids.map((id) => students.find((s) => s.id === id)).filter(Boolean);
@@ -69,7 +70,8 @@ export function ScheduleSheet({ initial, studentIds: preset, onClose }) {
     const m = monthKey(start);
     const st = monthStats(s, m, classes, carry);
     const already = editing && initial.status === "scheduled" && initial.studentIds.includes(s.id) && monthKey(initial.start) === m ? 1 : 0;
-    const over = st.scheduled - already + starts.filter((x) => monthKey(x) === m).length - st.remaining;
+    const adding = free ? 0 : starts.filter((x) => monthKey(x) === m).length;
+    const over = st.scheduled - (initial && initial.free ? 0 : already) + adding - st.remaining;
     return { s, fee, balance, state: feeState(s, balance), over: Number(s.classesPerMonth) > 0 && over > 0 ? over : 0, month: m };
   });
 
@@ -78,10 +80,16 @@ export function ScheduleSheet({ initial, studentIds: preset, onClose }) {
     if (!ids.length) return setErr("Pick at least one student.");
     if (!subject.trim()) return setErr("Enter the subject.");
     const go = () => {
-      const base = { studentIds: ids, subject: subject.trim(), durationMin: dur, note: note.trim() };
-      if (editing) store.updateClass(initial.id, { ...base, start, status: initial.status || "scheduled" }); // a cancelled class restored via "Change time" arrives as scheduled
-      else store.addClasses(base, starts);
+      const base = { studentIds: ids, subject: subject.trim(), durationMin: dur, note: note.trim(), free };
       onClose();
+      if (editing) {
+        const status = initial.status || "scheduled"; // a cancelled class restored via "Change time" arrives as scheduled
+        store.updateClass(initial.id, { ...base, start, status });
+        if (status === "scheduled" && start !== initial.start) whatsApp && whatsApp("rescheduled", { c: { ...initial, ...base, start, status }, oldStart: initial.start });
+      } else {
+        const made = store.addClasses(base, starts);
+        whatsApp && whatsApp("scheduled", made);
+      }
     };
     if (clashes.length) {
       Alert.alert("Classes overlap", `${clashes.length === 1 ? "This clashes with another class" : `This clashes with ${clashes.length} classes`}. Schedule it anyway?`, [
@@ -116,6 +124,9 @@ export function ScheduleSheet({ initial, studentIds: preset, onClose }) {
         <Segmented value={weeks} onChange={setWeeks} options={REPEATS} />
         <View style={{ height: 12 }} />
       </>}
+      <T size={13} muted style={{ marginBottom: 6 }}>Fee</T>
+      <Segmented value={free} onChange={setFree} options={[[false, "Normal class"], [true, "Bonus class"]]} />
+      <View style={{ height: 12 }} />
       <Field label="Note" value={note} onChangeText={setNote} placeholder="Optional, e.g. chapter 4" />
 
       {clashes.length > 0 && (
@@ -125,16 +136,16 @@ export function ScheduleSheet({ initial, studentIds: preset, onClose }) {
           {clashes.length > 6 && <T size={13} muted>and {clashes.length - 6} more</T>}
         </Notice>
       )}
-      {studentNotes.filter((n) => n.state === "due" || n.over || !n.fee).map((n) => (
+      {studentNotes.filter((n) => n.over || (!free && (n.state === "due" || !n.fee))).map((n) => (
         <Notice key={n.s.id} tone="warn">
           {[
-            n.state === "due" ? `${n.s.name}'s fee is ${n.balance < 0 ? `overdue by ${money(-n.balance)}` : "used up"}.` : "",
+            !free && n.state === "due" ? `${n.s.name}'s fee is ${n.balance < 0 ? `overdue by ${money(-n.balance)}` : "used up"}.` : "",
             n.over ? `This goes ${n.over} class${n.over > 1 ? "es" : ""} beyond ${n.s.name}'s classes for ${fmtMonth(n.month)}.` : "",
-            !n.fee ? `${n.s.name} has no fee set for ${subject || "this subject"}.` : "",
+            !free && !n.fee ? `${n.s.name} has no fee set for ${subject || "this subject"}.` : "",
           ].filter(Boolean).join(" ")}
         </Notice>
       ))}
-      {chosen.length > 0 && subject ? <T size={13} muted style={{ marginBottom: 12 }}>Fee per class: {studentNotes.map((n) => `${n.s.name} ${money(n.fee)}`).join(", ")}</T> : null}
+      {chosen.length > 0 && subject ? <T size={13} muted style={{ marginBottom: 12 }}>{free ? "Bonus class: no fee, and it doesn't count towards the monthly classes." : `Fee per class: ${studentNotes.map((n) => `${n.s.name} ${money(n.fee)}`).join(", ")}`}</T> : null}
       {err && <Notice tone="error">{err}</Notice>}
       <Button title={clashes.length ? "Schedule anyway" : editing ? "Save changes" : starts.length > 1 ? `Schedule ${starts.length} classes` : "Schedule class"} danger={clashes.length > 0} onPress={save} />
     </Sheet>
@@ -142,7 +153,7 @@ export function ScheduleSheet({ initial, studentIds: preset, onClose }) {
 }
 
 // ---------------------------------------------------------------- class details and completing it
-export function ClassSheet({ id, onClose, onEdit, openStudent }) {
+export function ClassSheet({ id, onClose, onEdit, openStudent, whatsApp }) {
   const store = useStore();
   const t = useTheme();
   const c = store.db.classes.find((x) => x.id === id);
@@ -157,11 +168,12 @@ export function ClassSheet({ id, onClose, onEdit, openStudent }) {
   // The slot may have been booked again after cancelling, so check for clashes before restoring.
   const restore = () => {
     const clashes = overlaps(classes, c.start, classEnd(c), c.id);
-    if (!clashes.length) return store.updateClass(c.id, { status: "scheduled" });
+    const doRestore = () => { store.updateClass(c.id, { status: "scheduled" }); whatsApp("restored", { ...c, status: "scheduled" }); };
+    if (!clashes.length) return doRestore();
     const list = clashes.slice(0, 5).map((x) => `• ${fmtTime(x.start)}–${fmtTime(classEnd(x))} ${x.subject} with ${names(store, x.studentIds)}`).join("\n");
     Alert.alert("This time is now taken", `Restoring would overlap with:\n${list}${clashes.length > 5 ? `\nand ${clashes.length - 5} more` : ""}`, [
       { text: "Change time", onPress: () => onEdit({ ...c, status: "scheduled" }) },
-      { text: "Restore anyway", style: "destructive", onPress: () => store.updateClass(c.id, { status: "scheduled" }) },
+      { text: "Restore anyway", style: "destructive", onPress: doRestore },
       { text: "Keep cancelled", style: "cancel" },
     ]);
   };
@@ -176,7 +188,8 @@ export function ClassSheet({ id, onClose, onEdit, openStudent }) {
       <T size={16} weight="700">{fmtDay(c.start)}, {fmtTime(c.start)} – {fmtTime(classEnd(c))}</T>
       <T muted style={{ marginBottom: 12 }}>{c.durationMin} minutes{c.studentIds.length > 1 ? ` · group of ${c.studentIds.length}` : ""}{c.note ? ` · ${c.note}` : ""}</T>
 
-      {c.status === "completed" && <Notice tone="ok">Completed. {money(Object.values(c.charges || {}).reduce((a, b) => a + b, 0))} taken from fees.</Notice>}
+      {c.free && c.status !== "completed" && <Notice tone="ok">Bonus class: no fee, and it doesn't count towards the monthly classes.</Notice>}
+      {c.status === "completed" && <Notice tone="ok">{c.free ? "Completed. Bonus class, no fee taken." : `Completed. ${money(Object.values(c.charges || {}).reduce((a, b) => a + b, 0))} taken from fees.`}</Notice>}
       {c.status === "cancelled" && <Notice tone="warn">Cancelled. No fee is charged.</Notice>}
 
       <H style={{ marginTop: 4 }}>Students</H>
@@ -189,7 +202,7 @@ export function ClassSheet({ id, onClose, onEdit, openStudent }) {
           <Pressable key={sid} onPress={() => openStudent(sid)} style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingVertical: 9, borderBottomWidth: i === c.studentIds.length - 1 ? 0 : StyleSheet.hairlineWidth, borderColor: t.line }}>
             <View style={{ flex: 1 }}>
               <T weight="600">{s.name}</T>
-              <T size={12} muted>{c.status === "completed" ? (charged != null ? `Charged ${money(charged)}` : "Absent, not charged") : `Fee ${money(feeFor(s, c.subject))}`}</T>
+              <T size={12} muted>{c.status === "completed" ? (charged != null ? `Charged ${money(charged)}` : "Absent, not charged") : (c.free ? "Bonus class, no fee" : `Fee ${money(feeFor(s, c.subject))}`)}</T>
             </View>
             <BalancePill state={feeState(s, balance)} balance={balance} money={money} />
           </Pressable>
@@ -200,8 +213,9 @@ export function ClassSheet({ id, onClose, onEdit, openStudent }) {
         <Button title="Mark completed" style={{ marginTop: 16 }} onPress={() => { setPresent(c.studentIds); setCompleting(true); }} />
         <View style={{ flexDirection: "row", gap: 10, marginTop: 10 }}>
           <Button kind="ghost" title="Change" style={{ flex: 1 }} onPress={() => onEdit(c)} />
-          <Button kind="ghost" title="Cancel class" style={{ flex: 1 }} onPress={() => store.updateClass(c.id, { status: "cancelled" })} />
+          <Button kind="ghost" title="Cancel class" style={{ flex: 1 }} onPress={() => { store.updateClass(c.id, { status: "cancelled" }); whatsApp("cancelled", { ...c, status: "cancelled" }); }} />
         </View>
+        <Button kind="ghost" title="Send reminder on WhatsApp" style={{ marginTop: 10, borderColor: "#1FA855" }} onPress={() => whatsApp("reminder", c, true)} />
       </>}
 
       {completing && <>

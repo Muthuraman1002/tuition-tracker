@@ -47,10 +47,12 @@ export function monthStats(student, month, classes, carry) {
   const carriedIn = carry[`${student.id}|${addMonths(month, -1)}`] || 0;
   const carriedOut = carry[`${student.id}|${month}`] || 0;
   const allowed = (Number(student.classesPerMonth) || 0) + carriedIn;
-  const completed = mine.filter((c) => c.status === "completed" && c.charges && c.charges[student.id] != null).length;
-  const scheduled = mine.filter((c) => c.status === "scheduled").length;
+  // Bonus classes (c.free): they don't use up the monthly allowance.
+  const completed = mine.filter((c) => !c.free && c.status === "completed" && c.charges && c.charges[student.id] != null).length;
+  const scheduled = mine.filter((c) => !c.free && c.status === "scheduled").length;
+  const extra = mine.filter((c) => c.free && c.status !== "cancelled").length;
   const remaining = Math.max(0, allowed - completed - carriedOut);
-  return { allowed, carriedIn, carriedOut, completed, scheduled, remaining, toSchedule: Math.max(0, remaining - scheduled) };
+  return { allowed, carriedIn, carriedOut, completed, scheduled, extra, remaining, toSchedule: Math.max(0, remaining - scheduled) };
 }
 
 // Start times for a class repeated weekly, `weeks` times in total.

@@ -80,7 +80,7 @@ export function StudentForm({ student, onClose }) {
 }
 
 // ---------------------------------------------------------------- details
-export function StudentSheet({ id, onClose, onEdit, openClass, schedule, exportFor }) {
+export function StudentSheet({ id, onClose, onEdit, openClass, schedule, exportFor, whatsApp }) {
   const store = useStore();
   const t = useTheme();
   const s = store.studentById(id);
@@ -103,6 +103,7 @@ export function StudentSheet({ id, onClose, onEdit, openClass, schedule, exportF
     const a = Number(pay.amount);
     if (!(a > 0)) return setMsg("Enter the amount paid.");
     store.addPayment({ studentId: s.id, amount: a, date: pay.date, note: pay.note.trim() });
+    whatsApp("payment", { student: s, amount: a, date: pay.date });
     setPay({ amount: "", date: Date.now(), note: "" });
     setMsg(`Recorded ${money(a)}.`);
   };
@@ -134,13 +135,15 @@ export function StudentSheet({ id, onClose, onEdit, openClass, schedule, exportF
         <Button kind="ghost" title="Edit" style={{ flex: 1 }} onPress={() => onEdit(s)} />
       </View>
       <Button kind="ghost" title="Export sessions (PDF / Excel)" style={{ marginTop: 10 }} onPress={() => exportFor([s.id])} />
+      <Button kind="ghost" title="Send fee balance on WhatsApp" style={{ marginTop: 10, borderColor: "#1FA855" }} onPress={() => whatsApp("balance", s, true)} />
 
       <H style={{ marginTop: 20 }}>{fmtMonth(month)}</H>
       {s.classesPerMonth ? <>
         <Row label="Classes this month" value={`${s.classesPerMonth}${st.carriedIn ? ` + ${st.carriedIn} carried over` : ""}`} />
         <Row label="Completed" value={String(st.completed)} />
         <Row label="Scheduled" value={String(st.scheduled)} />
-        <Row label="Still to schedule" value={String(st.toSchedule)} color={st.toSchedule ? t.flag : undefined} last />
+        <Row label="Still to schedule" value={String(st.toSchedule)} color={st.toSchedule ? t.flag : undefined} last={!st.extra} />
+        {st.extra ? <Row label="Bonus classes" value={String(st.extra)} color={t.gain} last /> : null}
       </> : <T muted>No monthly number of classes set.</T>}
 
       <H style={{ marginTop: 20 }}>Record a payment</H>

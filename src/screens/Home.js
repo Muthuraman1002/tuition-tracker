@@ -3,7 +3,7 @@ import { Linking, Pressable, StyleSheet, View } from "react-native";
 import { useStore } from "../store";
 import { ACCENTS, useTheme } from "../theme";
 import * as N from "../notify";
-import { BalancePill, Button, Card, Field, H, Notice, Row, Screen, Segmented, T } from "../ui";
+import { BalancePill, Button, Card, Chip, Field, H, Notice, Row, Screen, Segmented, T } from "../ui";
 import { ClassRow, HomeworkItem } from "./Classes";
 import { addMonths, balanceOf, classEnd, DAY, feeState, fmtDay, fmtMonth, money, monthKey, monthRange, monthStats, startOfDay } from "../logic";
 
@@ -163,7 +163,7 @@ export function MonthTab({ openStudent, exportFor }) {
                   <T weight="600">{st.completed} of {st.allowed || "—"} done</T>
                 </View>
                 <T size={12} muted>
-                  {s.classesPerMonth ? `${s.classesPerMonth} a month` : "No monthly number set"}{st.carriedIn ? ` + ${st.carriedIn} carried in` : ""} · {st.scheduled} scheduled{st.toSchedule ? ` · ${st.toSchedule} to schedule` : ""}
+                  {s.classesPerMonth ? `${s.classesPerMonth} a month` : "No monthly number set"}{st.carriedIn ? ` + ${st.carriedIn} carried in` : ""} · {st.scheduled} scheduled{st.toSchedule ? ` · ${st.toSchedule} to schedule` : ""}{st.extra ? ` · ${st.extra} bonus` : ""}
                 </T>
               </Pressable>
               {st.carriedOut > 0 ? (
@@ -197,6 +197,21 @@ export function MonthTab({ openStudent, exportFor }) {
             );
           })}
         </View>
+      </Card>
+
+      <Card>
+        <H>WhatsApp messages to parents</H>
+        <T size={13} muted style={{ marginBottom: 8 }}>Remind parents before each class. Your phone alerts you at that time, and tapping the alert opens WhatsApp with the reminder typed in.</T>
+        <Segmented value={settings.waRemindBefore ?? 30} onChange={(v) => store.saveSettings({ waRemindBefore: v })} options={[[0, "Off"], [15, "15 min"], [30, "30 min"], [60, "1 hour"], [120, "2 hours"], [1440, "1 day"]]} />
+        <T size={13} muted style={{ marginTop: 14, marginBottom: 8 }}>Offer to send a message when:</T>
+        <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+          {[["scheduled", "A class is scheduled"], ["rescheduled", "A class is moved"], ["cancelled", "A class is cancelled"], ["payment", "A payment is received"]].map(([k, label]) => {
+            const ask = settings.waAsk || {};
+            const on = ask[k] !== false;
+            return <Chip key={k} label={label} on={on} onPress={() => store.saveSettings({ waAsk: { ...ask, [k]: !on } })} />;
+          })}
+        </View>
+        <T size={12} muted style={{ marginTop: 10 }}>Messages go from your own WhatsApp; you tap Send for each. The payment message includes the balance and how many classes it covers.</T>
       </Card>
 
       <Card>

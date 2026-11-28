@@ -4,7 +4,7 @@ import { File, Paths } from "expo-file-system";
 import * as N from "./notify";
 import { active, feeFor, uid } from "./logic";
 
-const EMPTY = { students: [], classes: [], payments: [], carry: {}, settings: { remindBefore: 10, defaultDuration: 60, centerName: "", accent: "teal" } };
+const EMPTY = { students: [], classes: [], payments: [], carry: {}, settings: { remindBefore: 10, defaultDuration: 60, centerName: "", accent: "teal", waRemindBefore: 30, waAsk: { scheduled: true, rescheduled: true, cancelled: true, payment: true } } };
 const file = () => new File(Paths.document, "tuition.json");
 
 async function load() {
@@ -60,15 +60,17 @@ export function StoreProvider({ children }) {
     })),
 
     // starts: list of start times (several when repeating weekly)
-    addClasses: (base, starts) => update((d) => ({
-      ...d,
-      classes: [...d.classes, ...starts.map((start) => ({ ...base, id: uid(), start, status: "scheduled", createdAt: Date.now() }))],
-    })),
+    // Returns the new classes so callers can message parents about them.
+    addClasses: (base, starts) => {
+      const made = starts.map((start) => ({ ...base, id: uid(), start, status: "scheduled", createdAt: Date.now() }));
+      update((d) => ({ ...d, classes: [...d.classes, ...made] }));
+      return made;
+    },
     updateClass: (id, patch) => update((d) => ({ ...d, classes: d.classes.map((c) => (c.id === id ? { ...c, ...patch } : c)) })),
     deleteClass: (id) => update((d) => ({ ...d, classes: d.classes.filter((c) => c.id !== id) })),
 
     // Fees each attending student would be charged for this class.
-    chargesFor: (c, attendees) => Object.fromEntries((attendees || c.studentIds).map((sid) => [sid, feeFor(db.students.find((s) => s.id === sid), c.subject)])),
+    chargesFor: (c, attendees) => Object.fromEntries((attendees || c.studentIds).map((sid) => [sid, c.free ? 0 : feeFor(db.students.find((s) => s.id === sid), c.subject)])),
     completeClass: (id, charges) => update((d) => ({ ...d, classes: d.classes.map((c) => (c.id === id ? { ...c, status: "completed", completedAt: Date.now(), charges } : c)) })),
     undoComplete: (id) => update((d) => ({ ...d, classes: d.classes.map((c) => (c.id === id ? { ...c, status: "scheduled", completedAt: null, charges: null } : c)) })),
 
