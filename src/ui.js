@@ -1,7 +1,7 @@
 import React from "react";
-import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
-import { SafeAreaView } from "react-native-safe-area-context";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import { ActivityIndicator, KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from "react-native";
+import { SafeAreaProvider, SafeAreaView } from "react-native-safe-area-context";
+import DateTimePicker, { DateTimePickerAndroid } from "@react-native-community/datetimepicker";
 import { useTheme } from "./theme";
 
 export function Card({ children, style }) {
@@ -70,12 +70,43 @@ export function Field({ label, hint, style, ...props }) {
   );
 }
 
-// Date and time with the iOS compact picker. value/onChange use milliseconds.
+// Date and time. value/onChange use milliseconds.
+// iPhone: the compact inline picker. Android has no inline picker, so tapping opens the date dialog, then the time dialog.
 export function DateTimeField({ label, value, onChange, mode = "datetime" }) {
+  const t = useTheme();
+  if (Platform.OS !== "android") {
+    return (
+      <View style={{ marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
+        <T size={14} muted>{label}</T>
+        <DateTimePicker value={new Date(value)} mode={mode} display="compact" minuteInterval={5} onChange={(_, d) => d && onChange(d.getTime())} />
+      </View>
+    );
+  }
+  const d = new Date(value);
+  const pickTime = (base) => DateTimePickerAndroid.open({
+    value: base, mode: "time", is24Hour: false,
+    onChange: (e, tm) => { if (e.type === "set" && tm) { const x = new Date(base); x.setHours(tm.getHours(), tm.getMinutes(), 0, 0); onChange(x.getTime()); } },
+  });
+  const pickDate = () => DateTimePickerAndroid.open({
+    value: d, mode: "date",
+    onChange: (e, dt) => {
+      if (e.type !== "set" || !dt) return;
+      const x = new Date(d); x.setFullYear(dt.getFullYear(), dt.getMonth(), dt.getDate());
+      if (mode === "datetime") setTimeout(() => pickTime(x), 50); else onChange(x.getTime());
+    },
+  });
+  const chip = (text, onPress) => (
+    <Pressable onPress={onPress} style={{ paddingVertical: 8, paddingHorizontal: 12, borderRadius: 8, backgroundColor: t.ground, borderWidth: 1, borderColor: t.line }}>
+      <T size={14} weight="600">{text}</T>
+    </Pressable>
+  );
   return (
     <View style={{ marginBottom: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" }}>
       <T size={14} muted>{label}</T>
-      <DateTimePicker value={new Date(value)} mode={mode} display="compact" minuteInterval={5} onChange={(_, d) => d && onChange(d.getTime())} />
+      <View style={{ flexDirection: "row", gap: 6 }}>
+        {chip(d.toLocaleDateString("en-IN", { weekday: "short", day: "numeric", month: "short", year: "numeric" }), pickDate)}
+        {mode === "datetime" && chip(d.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" }), () => pickTime(d))}
+      </View>
     </View>
   );
 }
@@ -83,8 +114,11 @@ export function DateTimeField({ label, value, onChange, mode = "datetime" }) {
 export function Sheet({ visible = true, onClose, title, children }) {
   const t = useTheme();
   return (
-    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose}>
+    <Modal visible={visible} animationType="slide" presentationStyle="pageSheet" onRequestClose={onClose} statusBarTranslucent navigationBarTranslucent>
+      {/* A Modal is a separate window on Android, so it needs its own safe-area provider. */}
+      <SafeAreaProvider>
       <SafeAreaView style={{ flex: 1, backgroundColor: t.surface }} edges={["top", "bottom"]}>
+      <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: StyleSheet.hairlineWidth, borderColor: t.line }}>
           <T size={18} weight="800" numberOfLines={1} style={{ flex: 1 }}>{title}</T>
           <Pressable onPress={onClose} accessibilityLabel="Close" hitSlop={12} style={{ width: 32, height: 32, borderRadius: 16, backgroundColor: t.ground, alignItems: "center", justifyContent: "center" }}>
@@ -92,7 +126,9 @@ export function Sheet({ visible = true, onClose, title, children }) {
           </Pressable>
         </View>
         <ScrollView contentContainerStyle={{ padding: 16, paddingBottom: 40 }} keyboardShouldPersistTaps="handled">{children}</ScrollView>
+      </KeyboardAvoidingView>
       </SafeAreaView>
+      </SafeAreaProvider>
     </Modal>
   );
 }

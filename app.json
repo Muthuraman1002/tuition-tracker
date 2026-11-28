@@ -15,7 +15,23 @@
     },
     "android": {
       "package": "com.tuitiontracker.appqpe8v3",
-      "allowBackup": false
+      "allowBackup": false,
+      "versionCode": 1,
+      "permissions": [
+        "POST_NOTIFICATIONS",
+        "RECEIVE_BOOT_COMPLETED",
+        "VIBRATE"
+      ],
+      "blockedPermissions": [
+        "android.permission.RECORD_AUDIO",
+        "android.permission.SYSTEM_ALERT_WINDOW",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE"
+      ],
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#0F766E"
+      }
     },
     "plugins": [
       "./plugins/withoutPush",
@@ -35,6 +51,7 @@
         }
       ],
       "expo-sharing"
-    ]
+    ],
+    "icon": "./assets/icon.png"
   }
 }

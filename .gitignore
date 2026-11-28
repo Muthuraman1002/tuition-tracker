@@ -9,3 +9,4 @@ android/
 *.key
 *.mobileprovision
 .DS_Store
+android-build.log

@@ -1,5 +1,6 @@
 // Local notifications for scheduled classes. iOS keeps at most 64 pending notifications per app,
 // so after every change all pending ones are replaced with the next ones (up to 60).
+import { Platform } from "react-native";
 import * as Notifications from "expo-notifications";
 
 Notifications.setNotificationHandler({
@@ -7,7 +8,14 @@ Notifications.setNotificationHandler({
 });
 
 let allowed = null;
+// Android shows notifications only through a channel; this one alerts with sound like a reminder.
+const CHANNEL = "classes";
 export async function setup() {
+  if (Platform.OS === "android") {
+    await Notifications.setNotificationChannelAsync(CHANNEL, {
+      name: "Class reminders", importance: Notifications.AndroidImportance.HIGH, sound: "default", vibrationPattern: [0, 250, 250, 250],
+    }).catch(() => {});
+  }
   const cur = await Notifications.getPermissionsAsync();
   allowed = cur.granted || (cur.canAskAgain && (await Notifications.requestPermissionsAsync()).granted);
   return allowed;
@@ -41,7 +49,7 @@ async function doSync(db) {
   for (const it of items.slice(0, 60)) {
     await Notifications.scheduleNotificationAsync({
       content: { title: it.title, body: it.body, data: { classId: it.id, kind: it.kind || "class" }, sound: true },
-      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(it.at) },
+      trigger: { type: Notifications.SchedulableTriggerInputTypes.DATE, date: new Date(it.at), channelId: CHANNEL },
     });
   }
 }
